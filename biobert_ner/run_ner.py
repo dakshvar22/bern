@@ -33,20 +33,20 @@ flags.DEFINE_string(
 )
 
 flags.DEFINE_string(
-    "model_dir", './pretrainedBERT/',
+    "model_dir", './biobert_ner/pretrainedBERT/',
     "The input datadir.",
 )
 
 flags.DEFINE_string(
-    "bert_config_file", './conf/bert_config.json',
+    "bert_config_file", './biobert_ner/conf/bert_config.json',
     "The config json file corresponding to the pre-trained BERT model."
 )
 
-flags.DEFINE_string("vocab_file", './conf/vocab.txt',
+flags.DEFINE_string("vocab_file", './biobert_ner/conf/vocab.txt',
                     "The vocabulary file that the BERT model was trained on.")
 
 flags.DEFINE_string(
-    "init_checkpoint", './pretrainedBERT/pubmed_pmc_470k/biobert_model.ckpt',
+    "init_checkpoint", './biobert_ner/pretrainedBERT/pubmed_pmc_470k/biobert_model.ckpt',
     "Initial checkpoint (usually from a pre-trained BERT model)."
 )
 
@@ -70,7 +70,7 @@ flags.DEFINE_bool("use_tpu", False, "Whether to use TPU or GPU/CPU.")
 flags.DEFINE_bool("do_predict", True,
                   "Whether to run the model in inference mode on the test set.")
 
-flags.DEFINE_integer("predict_batch_size", 2, "Total batch size for predict.")
+flags.DEFINE_integer("predict_batch_size", 16, "Total batch size for predict.")
 
 flags.DEFINE_float("learning_rate", 5e-5, "The initial learning rate for Adam.")
 
@@ -435,8 +435,10 @@ class BioBERT:
             #     FastPredict(estimator, self.fast_input_fn_builder_gen)
 
             # self.recognize()
-            self.estimator_dict[etype] = \
-                FastPredict(estimator, self.fast_input_fn_builder_gen_batch)
+            # self.estimator_dict[etype] = \
+            #     FastPredict(estimator, self.fast_input_fn_builder_gen_batch)
+
+            self.estimator_dict[etype] = estimator
 
         self.counter = 0
 
@@ -588,6 +590,10 @@ class BioBERT:
 
         return data_list
 
+    def examples_generator(self, predict_examples_list):
+        for e in predict_examples_list:
+            yield e
+
     @Profile(__name__)
     def recognize_etype(self, etype, predict_example_list, tokens, tot_tokens,
                         predict_dict, logits_dict, data_list, json_dict,
@@ -596,8 +602,9 @@ class BioBERT:
         # for e in predict_example_list:
         #     result.append(self.estimator_dict[etype].predict(e))
 
-        result = self.estimator_dict[etype].predict(predict_example_list)
+        # result = self.estimator_dict[etype].predict(predict_example_list)
 
+        result = self.estimator_dict[etype].predict(self.fast_input_fn_builder_gen_batch(lambda: self.examples_generator(predict_example_list)))
         predicts = list()
         logits = list()
         for pidx, prediction in enumerate(result):
@@ -755,7 +762,7 @@ class BioBERT:
         seq_length = self.FLAGS.max_seq_length
 
         def input_fn(params):
-            # batch_size = params["batch_size"]
+            batch_size = params["batch_size"]
             output_types = {
                 'input_ids': tf.int32,
                 'input_mask': tf.int32,
@@ -776,8 +783,8 @@ class BioBERT:
                 gen_predict_examples, output_types,
                 output_shapes=output_shapes)
             # d = d.prefetch(batch_size)  # error
-            # d = d.batch(batch_size)  # error
-            d = d.batch(1)
+            d = d.batch(batch_size)  # error
+            # d = d.batch(1)
             return d
 
         return input_fn
@@ -870,7 +877,7 @@ def main(_):
     import json
 
     dl = pubtator_biocxml2dict_list(
-        [26658955, 24189420, 22579007, 29185436])
+        [29185436])
     for d in dl:
         print(d['pmid'])
         with open('/media/donghyeon/f7c53837-2156-4793-b2b1-4b0578dffef1'
@@ -879,7 +886,7 @@ def main(_):
             json.dump(d, f_out)
         biobert.recognize([d])
 
-    biobert.close()
+    # biobert.close()
 
     show_prof_data()
 
