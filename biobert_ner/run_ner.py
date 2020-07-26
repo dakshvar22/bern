@@ -33,20 +33,20 @@ flags.DEFINE_string(
 )
 
 flags.DEFINE_string(
-    "model_dir", './biobert_ner/pretrainedBERT/',
+    "model_dir", './pretrainedBERT/',
     "The input datadir.",
 )
 
 flags.DEFINE_string(
-    "bert_config_file", './biobert_ner/conf/bert_config.json',
+    "bert_config_file", './conf/bert_config.json',
     "The config json file corresponding to the pre-trained BERT model."
 )
 
-flags.DEFINE_string("vocab_file", './biobert_ner/conf/vocab.txt',
+flags.DEFINE_string("vocab_file", './conf/vocab.txt',
                     "The vocabulary file that the BERT model was trained on.")
 
 flags.DEFINE_string(
-    "init_checkpoint", './biobert_ner/pretrainedBERT/pubmed_pmc_470k/biobert_model.ckpt',
+    "init_checkpoint", './pretrainedBERT/pubmed_pmc_470k/biobert_model.ckpt',
     "Initial checkpoint (usually from a pre-trained BERT model)."
 )
 
@@ -880,8 +880,7 @@ def main(_):
         [29185436])
     for d in dl:
         print(d['pmid'])
-        with open('/media/donghyeon/f7c53837-2156-4793-b2b1-4b0578dffef1'
-                  '/biobert/BioBert_NER/BioBERTNER/data/' + d['pmid'] + '.json',
+        with open('./' + d['pmid'] + '.json',
                   'w', encoding='utf-8') as f_out:
             json.dump(d, f_out)
         biobert.recognize([d])
