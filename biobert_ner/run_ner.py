@@ -20,7 +20,6 @@ from biobert_ner.utils import Profile, show_prof_data
 from biobert_ner.fast_predict2 import FastPredict
 from convert import preprocess
 
-
 flags = tf.flags
 
 flags.DEFINE_string(
@@ -61,7 +60,7 @@ flags.DEFINE_bool(
 )
 
 flags.DEFINE_integer(
-    "max_seq_length", 256,
+    "max_seq_length", 32,
     "The maximum total input sequence length after WordPiece tokenization."
 )
 
@@ -70,7 +69,7 @@ flags.DEFINE_bool("use_tpu", False, "Whether to use TPU or GPU/CPU.")
 flags.DEFINE_bool("do_predict", True,
                   "Whether to run the model in inference mode on the test set.")
 
-flags.DEFINE_integer("predict_batch_size", 16, "Total batch size for predict.")
+flags.DEFINE_integer("predict_batch_size", 128, "Total batch size for predict.")
 
 flags.DEFINE_float("learning_rate", 5e-5, "The initial learning rate for Adam.")
 
@@ -435,10 +434,10 @@ class BioBERT:
             #     FastPredict(estimator, self.fast_input_fn_builder_gen)
 
             # self.recognize()
-            # self.estimator_dict[etype] = \
-            #     FastPredict(estimator, self.fast_input_fn_builder_gen_batch)
+            self.estimator_dict[etype] = \
+                FastPredict(estimator, self.fast_input_fn_builder_gen_batch)
 
-            self.estimator_dict[etype] = estimator
+            # self.estimator_dict[etype] = estimator
 
         self.counter = 0
 
@@ -471,6 +470,7 @@ class BioBERT:
             os.remove(token_path)
 
         predict_example_list = list()
+        print("Number of examples: ", len(predict_examples))
         for ex_index, example in enumerate(predict_examples):
             feature = self.convert_single_example(
                 example, self.FLAGS.max_seq_length, req_id, "test")
@@ -484,6 +484,7 @@ class BioBERT:
             feature_dict["segment_ids"] = feature.segment_ids
             feature_dict["label_ids"] = feature.label_ids
             predict_example_list.append(feature_dict)
+        print("Number of examples: ", len(predict_example_list))
 
         tokens = list()
         tot_tokens = list()
@@ -522,6 +523,7 @@ class BioBERT:
         for t in threads:
             t.join()
 
+
         for etype in self.entity_types:
             if out_tag_dict[etype][0]:
                 if type(input_dl) is str:
@@ -533,9 +535,11 @@ class BioBERT:
                     os.remove(token_path)
                 return None
 
+
         data_list = merge_results(data_list, json_dict, predict_dict,
                                   logits_dict, FLAGS.rep_ent,
                                   is_raw_text=is_raw_text)
+
 
         if type(input_dl) is str:
             output_path = os.path.join('result/', os.path.splitext(
@@ -602,9 +606,9 @@ class BioBERT:
         # for e in predict_example_list:
         #     result.append(self.estimator_dict[etype].predict(e))
 
-        # result = self.estimator_dict[etype].predict(predict_example_list)
+        result = self.estimator_dict[etype].predict(predict_example_list)
 
-        result = self.estimator_dict[etype].predict(self.fast_input_fn_builder_gen_batch(lambda: self.examples_generator(predict_example_list)))
+        # result = self.estimator_dict[etype].predict(self.fast_input_fn_builder_gen_batch(lambda: self.examples_generator(predict_example_list)))
         predicts = list()
         logits = list()
         for pidx, prediction in enumerate(result):

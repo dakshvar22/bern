@@ -408,6 +408,7 @@ class GetHandler(BaseHTTPRequestHandler):
             f.write('\n')
             f.write(text_hash + '|a|' + text + '\n\n')
 
+        '''
         # Run GNormPlus
         gnormplus_start_time = time.time()
         tell_inputfile(self.stm_dict['gnormplus_host'],
@@ -435,12 +436,13 @@ class GetHandler(BaseHTTPRequestHandler):
 
         # Convert tmVar 2.0 outputs (?.PubTator.PubTator) to python dict
         dict_list = pubtator2dict_list(output_tmvar2, is_raw_text=True)
-
+        # dict_list = list()
         # Delete temp files
-        os.remove(input_gnormplus)
-        os.remove(input_tmvar2)
-        os.remove(output_tmvar2)
-
+        # os.remove(input_gnormplus)
+        # os.remove(input_tmvar2)
+        # os.remove(output_tmvar2)
+        '''
+        dict_list = [{'pmid': text_hash, 'mutation_model': 'tmVar 2.0', 'entities': {'mutation': []}, 'abstract': text}]
         # error
         if type(dict_list) is str:
             print(dict_list)
