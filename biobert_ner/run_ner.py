@@ -60,6 +60,11 @@ flags.DEFINE_bool(
 )
 
 flags.DEFINE_integer(
+    "tag_mutations", 0,
+    "Whether to tag mutations."
+)
+
+flags.DEFINE_integer(
     "max_seq_length", 32,
     "The maximum total input sequence length after WordPiece tokenization."
 )

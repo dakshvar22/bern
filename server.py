@@ -408,41 +408,41 @@ class GetHandler(BaseHTTPRequestHandler):
             f.write('\n')
             f.write(text_hash + '|a|' + text + '\n\n')
 
-        '''
-        # Run GNormPlus
-        gnormplus_start_time = time.time()
-        tell_inputfile(self.stm_dict['gnormplus_host'],
+        print(FLAGS.tag_mutations)
+        if FLAGS.tag_mutations:
+            # Run GNormPlus
+            gnormplus_start_time = time.time()
+            tell_inputfile(self.stm_dict['gnormplus_host'],
                        self.stm_dict['gnormplus_port'],
                        '{}.PubTator'.format(text_hash))
-        gnormplus_time = time.time() - gnormplus_start_time
-        elapsed_time_dict['gnormplus'] = round(gnormplus_time, 3)
-        print(datetime.now().strftime(self.stm_dict['time_format']),
+            gnormplus_time = time.time() - gnormplus_start_time
+            elapsed_time_dict['gnormplus'] = round(gnormplus_time, 3)
+            print(datetime.now().strftime(self.stm_dict['time_format']),
               '[{}] GNormPlus {:.3f} sec'
               .format(cur_thread_name, gnormplus_time))
 
-        # Move a GNormPlus output file to the tmVar2 input directory
-        shutil.move(output_gnormplus, input_tmvar2)
+            # Move a GNormPlus output file to the tmVar2 input directory
+            shutil.move(output_gnormplus, input_tmvar2)
 
-        # Run tmVar 2.0
-        tmvar2_start_time = time.time()
-        tell_inputfile(self.stm_dict['tmvar2_host'],
+            # Run tmVar 2.0
+            tmvar2_start_time = time.time()
+            tell_inputfile(self.stm_dict['tmvar2_host'],
                        self.stm_dict['tmvar2_port'],
                        '{}.PubTator'.format(text_hash))
-        tmvar2_time = time.time() - tmvar2_start_time
-        elapsed_time_dict['tmvar2'] = round(tmvar2_time, 3)
-        print(datetime.now().strftime(self.stm_dict['time_format']),
+            tmvar2_time = time.time() - tmvar2_start_time
+            elapsed_time_dict['tmvar2'] = round(tmvar2_time, 3)
+            print(datetime.now().strftime(self.stm_dict['time_format']),
               '[{}] tmVar 2.0 {:.3f} sec'
               .format(cur_thread_name, tmvar2_time))
 
-        # Convert tmVar 2.0 outputs (?.PubTator.PubTator) to python dict
-        dict_list = pubtator2dict_list(output_tmvar2, is_raw_text=True)
-        # dict_list = list()
-        # Delete temp files
-        # os.remove(input_gnormplus)
-        # os.remove(input_tmvar2)
-        # os.remove(output_tmvar2)
-        '''
-        dict_list = [{'pmid': text_hash, 'mutation_model': 'tmVar 2.0', 'entities': {'mutation': []}, 'abstract': text}]
+            # Convert tmVar 2.0 outputs (?.PubTator.PubTator) to python dict
+            dict_list = pubtator2dict_list(output_tmvar2, is_raw_text=True)
+            # Delete temp files
+            os.remove(input_gnormplus)
+            os.remove(input_tmvar2)
+            os.remove(output_tmvar2)
+        else:
+            dict_list = [{'pmid': text_hash, 'mutation_model': 'tmVar 2.0', 'entities': {'mutation': []}, 'abstract': text}]
         # error
         if type(dict_list) is str:
             print(dict_list)
@@ -610,6 +610,8 @@ class Main:
         FLAGS.tmvar2_host = params.tmvar2_host
         FLAGS.tmvar2_port = params.tmvar2_port
 
+        FLAGS.tag_mutations = params.tag_mutations
+
         # import pprint
         # pprint.PrettyPrinter().pprint(FLAGS.__flags)
 
@@ -678,6 +680,7 @@ if __name__ == '__main__':
                            help='tmVar 2.0 host', default='localhost')
     argparser.add_argument('--tmvar2_port', type=int,
                            help='tmVar 2.0 port', default=18896)
+    argparser.add_argument('--tag_mutations', type=int, help="Should mutations be tagged?", default=0)
 
     argparser.add_argument('--n_pmid_limit', type=int,
                            help='max # of pmids', default=10)
