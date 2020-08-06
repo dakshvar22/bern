@@ -7,6 +7,8 @@ pubmed_pubtator/
 biobert_ner/pretrainedBERT/
 biobert_ner/result/
 biobert_ner/tmp/
+pytorch_dumps/
+pytorch_dumps.zip
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -34,6 +36,7 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.DS_Store
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

@@ -19,6 +19,7 @@ from biobert_ner.ops import *
 from biobert_ner.utils import Profile, show_prof_data
 from biobert_ner.fast_predict2 import FastPredict
 from convert import preprocess
+from biobert_ner.hf_utils import tokenize_batch, feed_through_model, get_all_batch_tokens, initialize_model, initialize_tokenizer
 
 flags = tf.flags
 
@@ -32,7 +33,7 @@ flags.DEFINE_string(
 )
 
 flags.DEFINE_string(
-    "model_dir", './pretrainedBERT/',
+    "model_dir", '/app/pt_models',
     "The input datadir.",
 )
 
@@ -391,70 +392,23 @@ class BioBERT:
         self.tokenizer = FullTokenizer(
             vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
 
-        tpu_cluster_resolver = None
-        if FLAGS.use_tpu and FLAGS.tpu_name:
-            tpu_cluster_resolver = \
-                tf.contrib.cluster_resolver.TPUClusterResolver(
-                    FLAGS.tpu_name, zone=FLAGS.tpu_zone,
-                    project=FLAGS.gcp_project)
-
-        is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
-        session_config = tf.ConfigProto()
-        session_config.gpu_options.allow_growth = True
-
-        self.estimator_dict = dict()
+        self.hf_tokenizer = None
+        self.models_dict = dict()
         self.entity_types = ['gene', 'disease', 'drug', 'species']
-        # self.entity_types = ['disease']
+
         for etype in self.entity_types:
-            num_train_steps = None
-            num_warmup_steps = None
-
-            run_config = tf.contrib.tpu.RunConfig(
-                cluster=tpu_cluster_resolver,
-                master=FLAGS.master,
-                model_dir=os.path.join(FLAGS.model_dir, etype),
-                session_config=session_config,
-                save_checkpoints_steps=FLAGS.save_checkpoints_steps,
-                tpu_config=tf.contrib.tpu.TPUConfig(
-                    iterations_per_loop=FLAGS.iterations_per_loop,
-                    num_shards=FLAGS.num_tpu_cores,
-                    per_host_input_for_training=is_per_host))
-
-            model_fn = model_fn_builder(
-                bert_config=bert_config,
-                num_labels=len(self.label_list) + 1,
-                init_checkpoint=FLAGS.init_checkpoint,
-                learning_rate=FLAGS.learning_rate,
-                num_train_steps=num_train_steps,
-                num_warmup_steps=num_warmup_steps,
-                use_tpu=FLAGS.use_tpu,
-                use_one_hot_embeddings=FLAGS.use_tpu)
-            '''
-            estimator = tf.estimator.Estimator(
-                    model_fn=model_fn,
-                    config=run_config,
-                    params={'batch_size': FLAGS.predict_batch_size}
-                    )
-            '''
-            estimator = tf.contrib.tpu.TPUEstimator(
-                use_tpu=FLAGS.use_tpu,
-                model_fn=model_fn,
-                config=run_config,
-                predict_batch_size=FLAGS.predict_batch_size)
-           
-            # self.estimator_dict[etype] = \
-            #     FastPredict(estimator, self.fast_input_fn_builder_gen)
-
-            # self.recognize()
-            self.estimator_dict[etype] = \
-                FastPredict(estimator, self.fast_input_fn_builder_gen_batch)
-
-            # self.estimator_dict[etype] = estimator
+            model_dir = os.path.join(FLAGS.model_dir, etype)
+            if not self.hf_tokenizer:
+                self.hf_tokenizer = initialize_tokenizer(model_dir)
+            self.models_dict[etype] = initialize_model(model_dir)
 
         self.counter = 0
 
         init_end_t = time.time()
         print('BioBERT init_t {:.3f} sec.'.format(init_end_t - init_start_t))
+
+    def construct_batch_of_text(self, examples):
+        return [ex.text for ex in examples]
 
     @Profile(__name__)
     def recognize(self, input_dl, is_raw_text=False, thread_id=None,
@@ -481,38 +435,9 @@ class BioBERT:
         if os.path.exists(token_path):
             os.remove(token_path)
 
-        predict_example_list = list()
-        print("Number of examples: ", len(predict_examples))
-        for ex_index, example in enumerate(predict_examples):
-            feature = self.convert_single_example(
-                example, self.FLAGS.max_seq_length, req_id, "test")
-            feature_dict = dict()
-            # feature_dict["input_ids"] = [feature.input_ids]
-            # feature_dict["input_mask"] = [feature.input_mask]
-            # feature_dict["segment_ids"] = [feature.segment_ids]
-            # feature_dict["label_ids"] = [feature.label_ids]
-            feature_dict["input_ids"] = feature.input_ids
-            feature_dict["input_mask"] = feature.input_mask
-            feature_dict["segment_ids"] = feature.segment_ids
-            feature_dict["label_ids"] = feature.label_ids
-            predict_example_list.append(feature_dict)
-        print("Number of examples: ", len(predict_example_list))
-
-        tokens = list()
-        tot_tokens = list()
-        with open(token_path, 'r') as reader:
-            for line in reader:
-                tok = line.strip()
-                tot_tokens.append(tok)
-                if tok == '[CLS]':
-                    tmp_toks = [tok]
-                elif tok == '[SEP]':
-                    tmp_toks.append(tok)
-                    tokens.append(tmp_toks)
-                else:
-                    tmp_toks.append(tok)
-
-        # predict_example_list = self.get_inputs(predict_examples, req_id)
+        batch_text = self.construct_batch_of_text(predict_examples)
+        model_batch_input, seq_lens = tokenize_batch(self.hf_tokenizer, batch_text)
+        tot_tokens = get_all_batch_tokens(self.hf_tokenizer, model_batch_input, seq_lens)
 
         predict_dict = dict()
         logits_dict = dict()
@@ -523,27 +448,16 @@ class BioBERT:
         for etype in self.entity_types:
             out_tag_dict[etype] = (False, None)
             t = threading.Thread(target=self.recognize_etype,
-                                 args=(etype, predict_example_list,
-                                       tokens, tot_tokens,
+                                 args=(etype, model_batch_input, seq_lens, tot_tokens,
                                        predict_dict, logits_dict, data_list,
                                        json_dict, out_tag_dict))
             t.daemon = True
             t.start()
             threads.append(t)
 
-        '''
-        out_tag_dict['gene'] = (False,None)
-        out_tag_dict['drug'] = (False, None)
-        out_tag_dict['species'] = (False, None)
-        predict_dict['gene'] = {}
-        predict_dict['drug'] = {}
-        predict_dict['species'] = {}
-        '''
-
         # block until all tasks are done
         for t in threads:
             t.join()
-
 
         for etype in self.entity_types:
             if out_tag_dict[etype][0]:
@@ -556,11 +470,9 @@ class BioBERT:
                     os.remove(token_path)
                 return None
 
-
         data_list = merge_results(data_list, json_dict, predict_dict,
                                   logits_dict, FLAGS.rep_ent,
                                   is_raw_text=is_raw_text)
-
 
         if type(input_dl) is str:
             output_path = os.path.join('result/', os.path.splitext(
@@ -615,32 +527,25 @@ class BioBERT:
 
         return data_list
 
-    def examples_generator(self, predict_examples_list):
-        for e in predict_examples_list:
-            yield e
-
     @Profile(__name__)
-    def recognize_etype(self, etype, predict_example_list, tokens, tot_tokens,
+    def recognize_etype(self, etype, model_batch_input, tot_tokens, seq_lens,
                         predict_dict, logits_dict, data_list, json_dict,
                         out_tag_dict):
-        # result = list()
-        # for e in predict_example_list:
-        #     result.append(self.estimator_dict[etype].predict(e))
 
-        result = self.estimator_dict[etype].predict(predict_example_list, etype)
+        model_preds, model_logits = feed_through_model(self.models_dict[etype], model_batch_input)
 
-        # result = self.estimator_dict[etype].predict(self.fast_input_fn_builder_gen_batch(lambda: self.examples_generator(predict_example_list)))
         predicts = list()
         logits = list()
-        # print('first result', result[0])
-        for pidx, prediction in enumerate(result):
-            slen = len(tokens[pidx])
-            for p in prediction['prediction'][:slen]:
+        for index in range(model_preds.shape[0]):
+            pred = model_preds[index]
+            logit = model_logits[index]
+            seq_len = seq_lens[index]
+            for p in pred[:seq_len]:
                 if p in [0, 4, 5, 6]:
                     predicts.append(self.idx2label[3])
                 else:
                     predicts.append(self.idx2label[p])
-            for l in prediction['log_probs'][:slen]:
+            for l in logit[:seq_len]:
                 logits.append(l)
             # print(f"etype {etype}, {prediction['prediction'][:slen]}, {predicts}")
 
