@@ -404,6 +404,7 @@ class BioBERT:
 
         self.estimator_dict = dict()
         self.entity_types = ['gene', 'disease', 'drug', 'species']
+        # self.entity_types = ['disease']
         for etype in self.entity_types:
             num_train_steps = None
             num_warmup_steps = None
@@ -428,13 +429,19 @@ class BioBERT:
                 num_warmup_steps=num_warmup_steps,
                 use_tpu=FLAGS.use_tpu,
                 use_one_hot_embeddings=FLAGS.use_tpu)
-
+            '''
+            estimator = tf.estimator.Estimator(
+                    model_fn=model_fn,
+                    config=run_config,
+                    params={'batch_size': FLAGS.predict_batch_size}
+                    )
+            '''
             estimator = tf.contrib.tpu.TPUEstimator(
                 use_tpu=FLAGS.use_tpu,
                 model_fn=model_fn,
                 config=run_config,
                 predict_batch_size=FLAGS.predict_batch_size)
-
+           
             # self.estimator_dict[etype] = \
             #     FastPredict(estimator, self.fast_input_fn_builder_gen)
 
@@ -524,6 +531,15 @@ class BioBERT:
             t.start()
             threads.append(t)
 
+        '''
+        out_tag_dict['gene'] = (False,None)
+        out_tag_dict['drug'] = (False, None)
+        out_tag_dict['species'] = (False, None)
+        predict_dict['gene'] = {}
+        predict_dict['drug'] = {}
+        predict_dict['species'] = {}
+        '''
+
         # block until all tasks are done
         for t in threads:
             t.join()
@@ -611,11 +627,12 @@ class BioBERT:
         # for e in predict_example_list:
         #     result.append(self.estimator_dict[etype].predict(e))
 
-        result = self.estimator_dict[etype].predict(predict_example_list)
+        result = self.estimator_dict[etype].predict(predict_example_list, etype)
 
         # result = self.estimator_dict[etype].predict(self.fast_input_fn_builder_gen_batch(lambda: self.examples_generator(predict_example_list)))
         predicts = list()
         logits = list()
+        # print('first result', result[0])
         for pidx, prediction in enumerate(result):
             slen = len(tokens[pidx])
             for p in prediction['prediction'][:slen]:
@@ -625,6 +642,7 @@ class BioBERT:
                     predicts.append(self.idx2label[p])
             for l in prediction['log_probs'][:slen]:
                 logits.append(l)
+            # print(f"etype {etype}, {prediction['prediction'][:slen]}, {predicts}")
 
         de_toks, de_labels, de_logits = detokenize(tot_tokens, predicts, logits)
 
@@ -779,26 +797,36 @@ class BioBERT:
                 'label_ids': tf.int32
             }
             output_shapes = {
-                # 'input_ids': (None, seq_length),
-                # 'input_mask': (None, seq_length),
-                # 'segment_ids': (None, seq_length),
-                # 'label_ids': (None, seq_length)
-                'input_ids': (seq_length,),
-                'input_mask': (seq_length,),
-                'segment_ids': (seq_length,),
-                'label_ids': (seq_length,)
+                'input_ids': (None, seq_length),
+                'input_mask': (None, seq_length),
+                'segment_ids': (None, seq_length),
+                'label_ids': (None, seq_length)
+                # 'input_ids': (seq_length,),
+                # 'input_mask': (seq_length,),
+                # 'segment_ids': (seq_length,),
+                # 'label_ids': (seq_length,)
             }
             d = tf.data.Dataset.from_generator(
-                gen_predict_examples, output_types,
+                    lambda : gen_predict_examples(batch_size), output_types,
                 output_shapes=output_shapes)
             # d = d.prefetch(batch_size)  # error
-            d = d.batch(batch_size)  # error
+            # d = d.batch(batch_size)  # error
             # d = d.batch(1)
-            return d
+            d = d.repeat(1)
+            iterator = d.make_one_shot_iterator()
+            features = iterator.get_next()
+            # print(features)
+            # feature_dict = dict(zip(FEATURES,features))
+            # print(feature_dict)
+
+            # return d
+            return features
 
         return input_fn
 
     def convert_single_example(self, example, max_seq_length, req_id, mode):
+        print('Single example')
+        print(example.text)
         label_map = {}
         for (i, label) in enumerate(self.label_list, 1):
             label_map[label] = i
@@ -815,6 +843,8 @@ class BioBERT:
                     labels.append(label_1)
                 else:
                     labels.append("X")
+        print(len(tokens), tokens)
+        print(len(labels), labels)
         # tokens = tokenizer.tokenize(example.text)
         if len(tokens) >= max_seq_length - 1:
             tokens = tokens[0:(max_seq_length - 2)]
@@ -845,6 +875,7 @@ class BioBERT:
             label_ids.append(0)
             ntokens.append("**NULL**")
             # label_mask.append(0)
+        # print(ntokens)
         # print(len(input_ids))
         assert len(input_ids) == max_seq_length
         assert len(input_mask) == max_seq_length
@@ -860,6 +891,7 @@ class BioBERT:
             # label_mask = label_mask
         )
         self.write_tokens(ntokens, mode, req_id)
+        print('--------------------------------------')
         return feature
 
     @staticmethod

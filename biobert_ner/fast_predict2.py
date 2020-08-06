@@ -28,16 +28,41 @@ class FastPredict:
         self.predictions = None
         self.lock = threading.Lock()
 
-    def _create_generator(self):
+    def _create_generator(self, batch_size=1):
         while not self.closed:
             # yield self.next_features
 
             # BioBERT.recognize()
-            for f in self.next_features:
+            '''
+            for index,f in enumerate(self.next_features):
+                # print('yielding', index)
+                print(f)
                 yield f
+            '''
+            print('Called with batch size=', batch_size)
+            dummy_batch = {'input_ids': [], 'input_mask' : [], 'segment_ids' : [], 'label_ids': []}
+            cur_batch = dummy_batch
+            cur_batch_size = 0
+            for f in self.next_features:
+                cur_batch['input_ids'].append(f['input_ids'])
+                cur_batch['input_mask'].append(f['input_mask'])
+                cur_batch['segment_ids'].append(f['segment_ids'])
+                cur_batch['label_ids'].append(f['label_ids'])
+                cur_batch_size += 1
+                if cur_batch_size == batch_size:
+                    print('Yielding new batch of size', cur_batch_size, 'Total next_features', len(self.next_features))
+                    yield cur_batch
+                    cur_batch = dummy_batch
+                    cur_batch_size = 0
+
+            if cur_batch_size:
+                print('Yielding new batch of size outside', cur_batch_size, 'Total next_features', len(self.next_features))
+                self.next_features=list()
+                yield cur_batch
+                # raise tf.errors.OutOfRangeError(node_def=None,op=None,message='Empty input')
 
     @Profile(__name__)
-    def predict(self, feature_batch):
+    def predict(self, feature_batch, etype=None):
         """ Runs a prediction on a set of features. Calling multiple times
             does *not* regenerate the graph which makes predict much faster.
 
@@ -47,7 +72,11 @@ class FastPredict:
             (i.e. predict([my_feature]), not predict(my_feature)
         """
         with self.lock:
+            if self.next_features:
+                print('num next features before setting', len(self.next_features), etype)
+                
             self.next_features = feature_batch
+            print('num next features', len(self.next_features), etype)
             batch_size = len(feature_batch)
             if self.first_run:
                 # self.batch_size = len(feature_batch)
@@ -63,6 +92,20 @@ class FastPredict:
             results = list()
             for _ in range(batch_size):
                 results.append(next(self.predictions))
+            ''' 
+            extra = 0
+            while True:
+                try:
+                    anymore = next(self.predictions)
+                    extra += 1
+                    if extra % 100 == 0:
+                        print('extra', extra)
+                    # print('Anymore', anymore)
+                except:
+                    print('finished', extra)
+                    break
+            '''
+            print('results returned', len(results), etype)
         return results
 
     def close(self):
